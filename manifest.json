@@ -1,0 +1,9 @@
+{
+    "name": "Audio Notes",
+    "short_name": "Audio Notes",
+    "start_url": "/",
+    "background_color": "#FFDCB5",
+    "theme_color": "#1E003D",
+    "display": "standalone",
+    "orientation":"portrait"
+}
