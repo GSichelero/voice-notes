@@ -7,38 +7,27 @@ if('serviceWorker' in navigator){
 const record = document.querySelector('.record');
 const stop = document.querySelector('.stop');
 const soundClips = document.querySelector('.sound-clips');
-const canvas = document.querySelector('.visualizer');
 const mainSection = document.querySelector('.main-controls');
-
-function randomNotification() {
-  const notifTitle = 'Hello';
-  const options = {
-    body: 'How are you?',
-    icon: 'https://www.bennish.net/favicon.ico',
-  }
-  new Notification(notifTitle, options);
-  setTimeout(randomNotification, 30000);
-}
-
-const allowNotificationsButton = document.querySelector('.notifications');
-allowNotificationsButton.addEventListener('click', () => {
-  Notification.requestPermission().then((result) => {
-    if (result === 'granted') {
-      randomNotification();
-    }
-  });
-})
-
-// disable stop button while not recording
 
 stop.disabled = true;
 
-// visualiser setup - create web audio api context and canvas
+const createScheduledNotification = async (tag, title, body, seconds, minutes, hours, days) => {
+  const registration = await navigator.serviceWorker.getRegistration();
+  registration.showNotification(title, {
+    tag: tag,
+    body: body,
+    showTrigger: new TimestampTrigger(Date.now() + seconds * 1000 + minutes * 60 * 1000 + hours * 60 * 60 * 1000 + days * 24 * 60 * 60 * 1000),
+  });
+};
 
-let audioCtx;
-const canvasCtx = canvas.getContext("2d");
-
-//main block for doing the audio recording
+const cancelScheduledNotification = async (tag) => {
+  const registration = await navigator.serviceWorker.getRegistration();
+  const notifications = await registration.getNotifications({
+    tag: tag,
+    includeTriggered: true,
+  });
+  notifications.forEach((notification) => notification.close());
+};  
 
 if (navigator.mediaDevices.getUserMedia) {
   console.log('getUserMedia supported.');
@@ -48,8 +37,6 @@ if (navigator.mediaDevices.getUserMedia) {
 
   let onSuccess = function(stream) {
     const mediaRecorder = new MediaRecorder(stream);
-
-    visualize(stream);
 
     record.onclick = function() {
       mediaRecorder.start();
@@ -76,23 +63,46 @@ if (navigator.mediaDevices.getUserMedia) {
     mediaRecorder.onstop = function(e) {
       console.log("data available after MediaRecorder.stop() called.");
 
-      const clipName = prompt('Enter a name for your sound clip?','My unnamed clip');
-
       const clipContainer = document.createElement('article');
       const clipLabel = document.createElement('p');
       const audio = document.createElement('audio');
       const deleteButton = document.createElement('button');
 
+      const notificationTitle = prompt('Enter the title of your notification');
+      const notificationBody = prompt('Enter the body of your notification');
+      const notificationTimeDays = parseInt(prompt("Enter a time for your notification (in days)", "0"), 10);
+      const notificationTimeHours = parseInt(prompt("Enter a time for your notification (in hours)", "0"), 10);
+      const notificationTimeMinutes = parseInt(prompt("Enter a time for your notification (in minutes)", "0"), 10);
+      const notificationTimeSeconds = parseInt(prompt("Enter a time for your notification (in seconds)", "0"), 10);
+      if(notificationTitle === null) {
+        clipLabel.textContent = 'My unnamed clip';
+      } else {
+        clipLabel.textContent = notificationTitle;
+      }
+      createScheduledNotification(
+        notificationTitle,
+        notificationTitle,
+        notificationBody,
+        notificationTimeSeconds,
+        notificationTimeMinutes,
+        notificationTimeHours,
+        notificationTimeDays
+      );
+      const dateString = new Date(
+        Date.now() + 
+        notificationTimeSeconds * 1000 + 
+        notificationTimeMinutes * 60 * 1000 + 
+        notificationTimeHours * 60 * 60 * 1000 + 
+        notificationTimeDays * 24 * 60 * 60 * 1000
+      ).toLocaleTimeString('pt-BR');
+      clipLabel.textContent += ` (${dateString})`;
+      localStorage.setItem(notificationTitle, `${notificationBody}:::${dateString}`);
+
+
       clipContainer.classList.add('clip');
       audio.setAttribute('controls', '');
       deleteButton.textContent = 'Delete';
       deleteButton.className = 'delete';
-
-      if(clipName === null) {
-        clipLabel.textContent = 'My unnamed clip';
-      } else {
-        clipLabel.textContent = clipName;
-      }
 
       clipContainer.appendChild(audio);
       clipContainer.appendChild(clipLabel);
@@ -109,16 +119,7 @@ if (navigator.mediaDevices.getUserMedia) {
       deleteButton.onclick = function(e) {
         let evtTgt = e.target;
         evtTgt.parentNode.parentNode.removeChild(evtTgt.parentNode);
-      }
-
-      clipLabel.onclick = function() {
-        const existingName = clipLabel.textContent;
-        const newClipName = prompt('Enter a new name for your sound clip?');
-        if(newClipName === null) {
-          clipLabel.textContent = existingName;
-        } else {
-          clipLabel.textContent = newClipName;
-        }
+        cancelScheduledNotification(clipLabel.textContent)
       }
     }
 
@@ -136,66 +137,3 @@ if (navigator.mediaDevices.getUserMedia) {
 } else {
    console.log('getUserMedia not supported on your browser!');
 }
-
-function visualize(stream) {
-  if(!audioCtx) {
-    audioCtx = new AudioContext();
-  }
-
-  const source = audioCtx.createMediaStreamSource(stream);
-
-  const analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 2048;
-  const bufferLength = analyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
-
-  source.connect(analyser);
-  //analyser.connect(audioCtx.destination);
-
-  draw()
-
-  function draw() {
-    const WIDTH = canvas.width
-    const HEIGHT = canvas.height;
-
-    requestAnimationFrame(draw);
-
-    analyser.getByteTimeDomainData(dataArray);
-
-    canvasCtx.fillStyle = 'rgb(200, 200, 200)';
-    canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
-
-    canvasCtx.lineWidth = 2;
-    canvasCtx.strokeStyle = 'rgb(0, 0, 0)';
-
-    canvasCtx.beginPath();
-
-    let sliceWidth = WIDTH * 1.0 / bufferLength;
-    let x = 0;
-
-
-    for(let i = 0; i < bufferLength; i++) {
-
-      let v = dataArray[i] / 128.0;
-      let y = v * HEIGHT/2;
-
-      if(i === 0) {
-        canvasCtx.moveTo(x, y);
-      } else {
-        canvasCtx.lineTo(x, y);
-      }
-
-      x += sliceWidth;
-    }
-
-    canvasCtx.lineTo(canvas.width, canvas.height/2);
-    canvasCtx.stroke();
-
-  }
-}
-
-window.onresize = function() {
-  canvas.width = mainSection.offsetWidth;
-}
-
-window.onresize();
